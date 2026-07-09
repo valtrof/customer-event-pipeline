@@ -17,6 +17,20 @@ BigQuery (chicago_taxi_trips)
   train_component     →  Model artifact + Metrics (MAE / RMSE / R²)
 ```
 
+## Design decisions
+
+**Three typed components instead of one training script.** Each stage exchanges typed KFP artifacts (`Dataset`, `Model`, `Metrics`) rather than file paths. The DAG becomes self-documenting, Vertex AI tracks lineage per artifact, and any stage can be rerun or cached independently — the reason KFP exists over a cron job running a script.
+
+**`packages_to_install` on a slim base image, not custom images per component.** Tradeoff: slower container cold-start per run vs. zero image-registry maintenance. For a pipeline that runs on demand rather than on a tight schedule, build simplicity wins.
+
+**Scaler lives inside the model artifact.** `StandardScaler` + `LinearRegression` are bundled in a single sklearn `Pipeline` and serialized together, so serving can never apply different preprocessing than training — the cheapest possible insurance against training/serving skew.
+
+**Metrics logged twice, on purpose.** MAE/RMSE/R² go to the `Metrics` artifact (comparable across runs in the Vertex UI) *and* into the model's metadata alongside feature columns and target (the artifact is self-describing — a consumer needs no side channel to know what the model expects).
+
+**Compile and submit are separate steps.** `pipeline.py` compiles the definition to YAML; `submit.py` parameterizes a run (`row_limit`, `target_col`, `test_size`). Compile once, submit many — and the YAML is diffable in code review.
+
+**Known simplification:** features are imputed with `fillna(0)` and the model is deliberately simple — this project demonstrates pipeline engineering (artifacts, lineage, parameterization, packaging), not modeling depth.
+
 ## Local setup
 
 ```bash
